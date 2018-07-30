@@ -5,10 +5,16 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"regexp"
+	"strings"
 
 	"github.com/Clever/circle-v2-migrate/models"
 	yaml "gopkg.in/yaml.v2"
 )
+
+const GOLANG = "go"
+const NODE = "node"
+const WAG = "wag"
 
 // https://circleci.com/docs/2.0/migrating-from-1-2/
 
@@ -64,31 +70,106 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	v2 := models.CircleYamlV2{
 		Version: 2,
 	}
+	var imageNeeds string
+	// @TODO: dynamically determine imageNeeds
+	// if node, will have package.json and node.mk (but this is clever-specific) in main project dir
+	// if go, will have golang.mk (but this is clever-specific)
+	// another common occurance is go with node, which for us is mostly wag
+	if _, err := os.Stat("./swagger.yml"); err == nil {
+		imageNeeds = WAG
+	} else if _, err := os.Stat("./golang.mk"); err == nil {
+		imageNeeds = GOLANG
+	} else if _, err := os.Stat("./node.mk"); err == nil {
+		imageNeeds = NODE
+	}
+	fmt.Printf("!!!!!!!!!!!!!IMAGE NEEDS: %s\n", imageNeeds)
 
-	// TODO: dynamically determine org/repo
-	org := "Clever"
-	repo := "kinesis-to-firehose"
+	// @TODO: dynamically determine org/repo
+	// for go, both can be found from path to working directory where this script is running
+	dir, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+	// /Users/briannaveenstra/go/src/github.com/Clever/catapult
+	splitDir := strings.Split(dir, "/")
+	var org string
+	var repo string
 
-	// TODO: Determine working dir depending on language
+	if len(splitDir) < 2 {
+		log.Fatal(fmt.Errorf("failed to find org and repo in %s", dir))
+	}
+	org = splitDir[len(splitDir)-2]  // "Clever"
+	repo = splitDir[len(splitDir)-1] // "catapult"
+
+	// @TODO: Determine working dir depending on imageNeeds
 	v2.Jobs.Build.WorkingDirectory = fmt.Sprintf("/go/src/github.com/%s/%s", org, repo)
+
+	// @TODO: Determine image version based on makefile
+	// for go, this is in makefile on line that says:
+	// $(eval $(call golang-version-check,1.10))
+	versionCheckRegexp, err := regexp.Compile(`golang-version-check,([0-1].[0-9]+)`)
+	if err != nil {
+		fmt.Errorf("error compiling regexp %s", err.Error())
+	}
+
+	makefile, err := ioutil.ReadFile("Makefile")
+	if err != nil {
+		log.Fatal(err)
+	}
+	versionCheck := versionCheckRegexp.FindSubmatch(makefile)
+	image := "circleci/golang:1.08"
+	if versionCheck != nil {
+		version := string(versionCheck[1])
+		image = fmt.Sprintf("circleci/golang:%s", version)
+	}
+
 	v2.Jobs.Build.Docker = []models.Docker{
 		models.Docker{
-			Image: "circleci/golang:1.8",
+			// @TODO: dynamically determine image (including go/node version)
+			Image: image,
 		},
 	}
 
-	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, "checkout")
+	v2.Jobs.Build.Environment = map[string]string{
+		"CIRCLE_ARTIFACTS":    "/tmp/circleci-artifacts",
+		"CIRCLE_TEST_REPORTS": "/tmp/circleci-test-results",
+	}
 
-	// v1.Dependencies
-	// v1.Database
-	// v1.General
-
-	// Determine language and main setup
+	// Determine main setup
 	for _, item := range v1.Machine.Services {
 		if item == "docker" {
 			v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, "setup_remote_docker")
 		}
 	}
+
+	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, map[string]interface{}{
+		"run": models.Run{
+			Name:    "Set up CircleCI artifacts and test reports directories",
+			Command: `mkdir -p $CIRCLE_ARTIFACTS $CIRCLE_TEST_REPORTS`,
+		},
+	})
+
+	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, "checkout")
+
+	cloneCIScriptsStep := map[string]interface{}{
+		"run": models.Run{
+			Name:    "Clone ci-scripts",
+			Command: `cd $HOME && git clone --depth 1 -v https://github.com/Clever/ci-scripts.git && cd ci-scripts && git show --oneline -s`,
+		},
+	}
+
+	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, cloneCIScriptsStep)
+
+	installAWSCLIStep := map[string]interface{}{
+		"run": models.Run{
+			Name: "Install awscli for ECR publish",
+			Command: `cd /tmp/ && wget https://bootstrap.pypa.io/get-pip.py && sudo python get-pip.py
+sudo pip install --upgrade awscli && aws --version
+pip install --upgrade --user awscli`,
+		},
+	}
+
+	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, installAWSCLIStep)
 
 	////////////////////
 	// COMPILE
@@ -144,7 +225,7 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	}
 
 	for item := range overlap {
-		step := map[string]string{"deploy": item}
+		step := map[string]string{"run": item}
 		v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, step)
 	}
 
@@ -154,7 +235,7 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 				continue
 			}
 
-			step := map[string]string{"deploy": `if [ "${CIRCLE_BRANCH}" != "master" ]; then ` + item + `; fi;`}
+			step := map[string]string{"run": `if [ "${CIRCLE_BRANCH}" != "master" ]; then ` + item + `; fi;`}
 			v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, step)
 		}
 	}
@@ -165,7 +246,7 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 				continue
 			}
 
-			step := map[string]string{"deploy": `if [ "${CIRCLE_BRANCH}" == "master" ]; then ` + item + `; fi;`}
+			step := map[string]string{"run": `if [ "${CIRCLE_BRANCH}" == "master" ]; then ` + item + `; fi;`}
 			v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, step)
 		}
 	}
