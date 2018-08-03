@@ -142,33 +142,36 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 		}
 	}
 
-	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, map[string]interface{}{
-		"run": models.Run{
-			Name:    "Set up CircleCI artifacts and test reports directories",
-			Command: `mkdir -p $CIRCLE_ARTIFACTS $CIRCLE_TEST_REPORTS`,
-		},
-	})
-
-	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, "checkout")
-
-	cloneCIScriptsStep := map[string]interface{}{
-		"run": models.Run{
-			Name:    "Clone ci-scripts",
-			Command: `cd $HOME && git clone --depth 1 -v https://github.com/Clever/ci-scripts.git && cd ci-scripts && git show --oneline -s`,
+	// Add env vars for directories that were automatically generated in CircleCI 1.0
+	ciArtifactsDirsStep := map[string]interface{}{
+		"run": map[string]string{
+			"name":    "Set up CircleCI artifacts directories",
+			"command": `mkdir -p $CIRCLE_ARTIFACTS $CIRCLE_TEST_REPORTS`,
 		},
 	}
+	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, ciArtifactsDirsStep)
 
+	// Checkout repo
+	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, "checkout")
+
+	// Clone ci-scripts
+	cloneCIScriptsStep := map[string]interface{}{
+		"run": map[string]string{
+			"name":    "Clone ci-scripts",
+			"command": `cd $HOME && git clone --depth 1 -v https://github.com/Clever/ci-scripts.git && cd ci-scripts && git show --oneline -s`,
+		},
+	}
 	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, cloneCIScriptsStep)
 
+	// Install awscli for ECR interactions (used in docker publish steps)
 	installAWSCLIStep := map[string]interface{}{
-		"run": models.Run{
-			Name: "Install awscli for ECR publish",
-			Command: `cd /tmp/ && wget https://bootstrap.pypa.io/get-pip.py && sudo python get-pip.py
+		"run": map[string]string{
+			"name": "Install awscli for ECR publish",
+			"command": `cd /tmp/ && wget https://bootstrap.pypa.io/get-pip.py && sudo python get-pip.py
 sudo pip install --upgrade awscli && aws --version
 pip install --upgrade --user awscli`,
 		},
 	}
-
 	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, installAWSCLIStep)
 
 	////////////////////
