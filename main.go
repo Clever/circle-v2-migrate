@@ -90,9 +90,6 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	dbImages := []models.DockerImage{}
 	v2.Jobs.Build.Docker = append(v2.Jobs.Build.Docker, dbImages...)
 
-	// Checkout github repo
-	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, "checkout")
-
 	// Determine working directory
 	workingDir, err := determineWorkingDirectory(appType)
 	if err != nil {
