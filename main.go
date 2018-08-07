@@ -103,6 +103,12 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 		"CIRCLE_TEST_REPORTS": "/tmp/circleci-test-results",
 	}
 
+	// Clone ci-scripts
+	addCloneCIScriptsStep(&v2)
+
+	// Checkout repo
+	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, "checkout")
+
 	// Determine main setup
 	for _, item := range v1.Machine.Services {
 		if item == "docker" {
@@ -112,17 +118,11 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 		}
 	}
 
-	// Create directories that were automatically created in CircleCI 1.0
-	addCreateCIArtifactDirsStep(&v2)
-
-	// Checkout repo
-	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, "checkout")
-
-	// Clone ci-scripts
-	addCloneCIScriptsStep(&v2)
-
 	// Install awscli for ECR interactions (used in docker publish steps)
 	addInstallAWSCLIStep(&v2)
+
+	// Create directories that were automatically created in CircleCI 1.0
+	addCreateCIArtifactDirsStep(&v2)
 
 	// Set up .npmrc if needed (for using private npm packages)
 	// @TODO (INFRA-3149): is the set of apps with NODE_APP_TYPE the same as apps with .npmrc_docker files?
@@ -247,6 +247,7 @@ func addInstallAWSCLIStep(v2 *models.CircleYamlV2) {
 		"run": map[string]string{
 			"name": "Install awscli for ECR publish",
 			"command": `cd /tmp/ && wget https://bootstrap.pypa.io/get-pip.py && sudo python get-pip.py
+sudo apt-get install python-dev
 sudo pip install --upgrade awscli && aws --version
 pip install --upgrade --user awscli`,
 		},
@@ -324,7 +325,7 @@ func determineGoVersion() string {
 	version := "1.10"
 	versionCheckRegexp, err := regexp.Compile(`golang-version-check,([0-1].[0-9]+)`)
 	if err != nil {
-		fmt.Errorf("error compiling regexp %s", err.Error())
+		fmt.Printf("!WARNING: error compiling regexp %s\n", err.Error())
 	}
 	makefile, err := ioutil.ReadFile("Makefile")
 	if err != nil {
@@ -341,6 +342,18 @@ func determineGoVersion() string {
 // @TODO (INFRA-3156): implement (determine correct node version for non-wag node apps)
 func determineNodeVersion() string {
 	version := "8"
+	versionCheckRegexp, err := regexp.Compile(`NODE_VERSION := "v([0-9]+)"`)
+	if err != nil {
+		fmt.Printf("!WARNING: error compiling regexp %s\n", err.Error())
+	}
+	makefile, err := ioutil.ReadFile("Makefile")
+	if err != nil {
+		log.Fatal(err)
+	}
+	versionCheck := versionCheckRegexp.FindSubmatch(makefile)
+	if versionCheck != nil {
+		version = string(versionCheck[1])
+	}
 	return version
 }
 
