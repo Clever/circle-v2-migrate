@@ -129,6 +129,7 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	// (this is for when app has .npmrc_docker file)
 	if appType == NODE_APP_TYPE {
 		addSetupNPMRCStep(&v2)
+		addNPMInstallStep(&v2)
 	}
 
 	// translate COMPILE & TEST steps
@@ -240,6 +241,16 @@ mv .npmrc_docker .npmrc`,
 		},
 	}
 	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, setupNPMRCStep)
+}
+
+func addNPMInstallStep(v2 *models.CircleYamlV2) {
+	npmInstallStep := map[string]interface{}{
+		"run": map[string]string{
+			"name":    "npm install",
+			"command": "npm install",
+		},
+	}
+	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, npmInstallStep)
 }
 
 func addInstallAWSCLIStep(v2 *models.CircleYamlV2) {
