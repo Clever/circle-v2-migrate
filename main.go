@@ -281,8 +281,6 @@ func determineWorkingDirectory(appType string) (string, error) {
 	// go, wag: /go/src/github.com/Clever/catapult
 	// non-wag node: ~/Clever/hubble
 
-	org := "Clever"
-
 	// get repo
 	dir, err := os.Getwd()
 	if err != nil {
@@ -297,9 +295,9 @@ func determineWorkingDirectory(appType string) (string, error) {
 
 	// put together working directory string
 	if appType == GOLANG_APP_TYPE || appType == WAG_APP_TYPE {
-		return fmt.Sprintf("/go/src/github.com/%s/%s", org, repo), nil
+		return fmt.Sprintf("/go/src/github.com/Clever/%s", repo), nil
 	}
-	return fmt.Sprintf("~/%s/%s", org, repo), nil
+	return fmt.Sprintf("~/Clever/%s", repo), nil
 }
 
 func determineImageConstraints() models.ImageConstraints {
