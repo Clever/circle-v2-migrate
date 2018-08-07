@@ -334,10 +334,7 @@ func determineImageConstraints() models.ImageConstraints {
 // @TODO: error if version not found instead of returning 1.10? or is 1.10 default alright?
 func determineGoVersion() string {
 	version := "1.10"
-	versionCheckRegexp, err := regexp.Compile(`golang-version-check,([0-1].[0-9]+)`)
-	if err != nil {
-		fmt.Printf("!WARNING: error compiling regexp %s\n", err.Error())
-	}
+	versionCheckRegexp := regexp.MustCompile(`golang-version-check,([0-1].[0-9]+)`)
 	makefile, err := ioutil.ReadFile("Makefile")
 	if err != nil {
 		log.Fatal(err)
@@ -353,10 +350,7 @@ func determineGoVersion() string {
 // @TODO (INFRA-3156): implement (determine correct node version for non-wag node apps)
 func determineNodeVersion() string {
 	version := "8"
-	versionCheckRegexp, err := regexp.Compile(`NODE_VERSION := "v([0-9]+)"`)
-	if err != nil {
-		fmt.Printf("!WARNING: error compiling regexp %s\n", err.Error())
-	}
+	versionCheckRegexp := regexp.MustCompile(`NODE_VERSION := "v([0-9]+)"`)
 	makefile, err := ioutil.ReadFile("Makefile")
 	if err != nil {
 		log.Fatal(err)
