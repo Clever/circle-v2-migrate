@@ -9,7 +9,8 @@ import (
 	"strings"
 
 	"github.com/Clever/circle-v2-migrate/models"
-	yaml "gopkg.in/yaml.v2"
+	// use Clever fork of go-yaml/yaml because go-yaml/yaml limits lines to 80 characters
+	"github.com/Clever/yaml"
 )
 
 const GOLANG_APP_TYPE = "go"
@@ -44,6 +45,7 @@ func main() {
 	} else {
 		fmt.Println(string(marshalled))
 	}
+
 	fmt.Println("----------------------------------------")
 
 	// @TODO (INFRA-3158): after translation, write marshalled YAML to .circleci/config.yml
@@ -170,7 +172,6 @@ func translateTestSteps(v1 *models.CircleYamlV1, v2 *models.CircleYamlV2) {
 	}
 }
 
-// @TODO (INFRA-3157): remove line breaks in deploy steps -- they break dapple deploy, for instance
 func translateDeploySteps(v1 *models.CircleYamlV1, v2 *models.CircleYamlV2) error {
 	for key := range v1.Deployment {
 		if key != "master" && key != "non-master" {
