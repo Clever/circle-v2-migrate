@@ -48,8 +48,22 @@ func main() {
 
 	fmt.Println("----------------------------------------")
 
-	// @TODO (INFRA-3158): after translation, write marshalled YAML to .circleci/config.yml
-	// @TODO (INFRA-3158): after translation, remove or rename circle.yml
+	// after translation, write marshalled YAML to .circleci/config.yml
+	if _, err := os.Stat("./.circleci"); err != nil {
+		os.Mkdir("./.circleci", os.ModePerm)
+	}
+	outFile, err := os.Create("./.circleci/config.yml")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("writing circleci 2.0 config to .circleci/config.yml")
+	_, err = outFile.Write(marshalled)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// after translation, remove or rename circle.yml
+	fmt.Println("renaming circle.yml -> circle.yml.bak")
+	os.Rename("./circle.yml", "./circle.yml.bak")
 }
 
 // readCircleYaml reads and parses the repo's circle.yml (V1) file
