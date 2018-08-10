@@ -21,6 +21,7 @@ const UNKNOWN_APP_TYPE = "unknown"
 // https://circleci.com/docs/2.0/migrating-from-1-2/
 
 // @TODO: add info about target repo (e.g., name) to log lines (kayvee?)
+// @TODO: breaks for mongo-to-s3, which uses golang-move-repo ci-scripts script :(
 func main() {
 	v1, err := readCircleYaml()
 	if err != nil {
@@ -32,18 +33,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Println("V1")
-	fmt.Println(v1)
-
-	fmt.Println("V2")
-	fmt.Println(v2)
-
 	fmt.Println("---------- circle YAML Preview ---------")
 	marshalled, err := yaml.Marshal(v2)
 	if err != nil {
 		fmt.Printf("Failed to Marshal v2 yml:\n %s", err)
 	} else {
-		fmt.Println(string(marshalled))
+		// fmt.Println(string(marshalled))
 	}
 
 	fmt.Println("----------------------------------------")
@@ -134,9 +129,6 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 		}
 	}
 
-	// Install awscli for ECR interactions (used in docker publish steps)
-	addInstallAWSCLIStep(&v2)
-
 	// Create directories that were automatically created in CircleCI 1.0
 	addCreateCIArtifactDirsStep(&v2)
 
@@ -151,6 +143,9 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	// translate COMPILE & TEST steps
 	translateCompileSteps(&v1, &v2)
 	translateTestSteps(&v1, &v2)
+
+	// Install awscli for ECR interactions (used in docker publish deployment steps)
+	addInstallAWSCLIStep(&v2)
 
 	// translate and deduplicate DEPLOYMENT steps on master and non-master branches
 	err = translateDeploySteps(&v1, &v2)
@@ -315,6 +310,10 @@ func determineWorkingDirectory(appType string) (string, error) {
 	return fmt.Sprintf("~/Clever/%s", repo), nil
 }
 
+// determineImageConstraints returns the constraints for the docker images section of build, including:
+// -- app type (wag, go, node, unknown)
+// -- version of  image base language/library (e.g., go "1.10", node "6")
+// -- database types needed for tests (e.g., mongo, postgresql)
 func determineImageConstraints() models.ImageConstraints {
 	// if node, will have package.json and node.mk (but this is clever-specific) in main project dir
 	// if go, will have golang.mk (but this is clever-specific)
@@ -375,44 +374,40 @@ func determineNodeVersion() string {
 	return version
 }
 
-func getImage(constraints models.ImageConstraints) string {
+// getImage returns the primary image needed for a repo to build, based on app type and version
+func getImage(constraints models.ImageConstraints) models.DockerImage {
 	// @TODO (INFRA-3163): add human-readable image tags/other comments for image, if doable in yaml
+	// @TODO: use SHAs for all images
 	appType := constraints.AppType
 	version := constraints.Version
 	// default image (reproduces CircleCI 1.0 base)
-	defaultImage := "circleci/build-image:ubuntu-14.04-XXL-upstart-1189-5614f37"
-	if appType == GOLANG_APP_TYPE {
-		// @TODO (INFRA-3149): base image for go and wag 1.8 or earlier that's not just the xxl default?
-		if version == "1.10" {
-			// circleci/golang:1.10.3-stretch
-			// return "circleci/golang@sha256:4614481a383e55eef504f26f383db1329c285099fde0cfd342c49e5bb9b6c32a"
-			return "circleci/golang:1.10.3-stretch"
-		} else if version == "1.9" {
-			// circleci/golang:1.9.7-stretch
-			// return "circleci/golang@sha256:c46bee0b60747525d354f219083a46e06c68152f90f3bfb2812d1f232e6a5097"
-			return "circleci/golang:1.9.7-stretch"
-		}
-	} else if appType == WAG_APP_TYPE {
-		// @TODO (INFRA-3149): node version for wag locked in at 8.11.3 by these images -- could be ok (?)
-		// @TODO (INFRA-3149): base image for node <6 that's not just the xxl default?
-		if version == "1.10" {
-			// circleci/golang:1.10.3-stretch
-			// return "circleci/golang@sha256:4614481a383e55eef504f26f383db1329c285099fde0cfd342c49e5bb9b6c32a"
-			return "circleci/golang:1.10.3-stretch"
-		} else if version == "1.9" {
-			// circleci/golang:1.9.7-stretch
-			// return "circleci/golang@sha256:c46bee0b60747525d354f219083a46e06c68152f90f3bfb2812d1f232e6a5097"
-			return "circleci/golang:1.9.7-stretch"
+	defaultImage := models.DockerImage{
+		Image: "circleci/build-image:ubuntu-14.04-XXL-upstart-1189-5614f37",
+	}
+
+	// @TODO (INFRA-3149): node version for wag locked in at 8.11.3 by these images -- could be ok (?)
+	golangImageMap := map[string]models.DockerImage{
+		"1.10": models.DockerImage{Image: "circleci/golang:1.10.3-stretch"}, // "circleci/golang@sha256:4614481a383e55eef504f26f383db1329c285099fde0cfd342c49e5bb9b6c32a"
+		"1.9":  models.DockerImage{Image: "circleci/golang:1.9.7-stretch"},  // "circleci/golang@sha256:c46bee0b60747525d354f219083a46e06c68152f90f3bfb2812d1f232e6a5097"
+		"1.8":  models.DockerImage{Image: "circleci/golang:1.8.7-stretch"},
+	}
+
+	// @TODO (INFRA-3149): base image for node <6 that's not just the xxl default?
+	nodeImageMap := map[string]models.DockerImage{
+		"10": models.DockerImage{Image: "circleci/node:10.8.0-stretch"},
+		"8":  models.DockerImage{Image: "circleci/node:8.11.3-stretch"},
+		"6":  models.DockerImage{Image: "circleci/node:6.14.3-stretch"},
+	}
+
+	if appType == GOLANG_APP_TYPE || appType == WAG_APP_TYPE {
+		golangBaseImage, ok := golangImageMap[version]
+		if ok {
+			return golangBaseImage
 		}
 	} else if appType == NODE_APP_TYPE {
-		if version == "10" {
-			return "circleci/node:10.8.0-stretch"
-		} else if version == "8" {
-			// circleci/node:8.11.3-stretch
-			return "circleci/node:8.11.3-stretch"
-		} else if version == "6" {
-			// circleci/node:6.14.3-stretch
-			return "circleci/node:6.14.3-stretch"
+		nodeBaseImage, ok := nodeImageMap[version]
+		if ok {
+			return nodeBaseImage
 		}
 	}
 	fmt.Printf("No circleci image selected for app type %s, version %s -- using default\n", constraints.AppType, constraints.Version)
