@@ -14,6 +14,8 @@ import (
 	"github.com/Clever/yaml"
 )
 
+const SCRIPT_VERSION = "0.1.0"
+
 const GOLANG_APP_TYPE = "go"
 const NODE_APP_TYPE = "node"
 const WAG_APP_TYPE = "wag"
@@ -27,6 +29,7 @@ const POSTGRESQL_DB_TYPE = "postgresql"
 // @TODO: add info about target repo (e.g., name) to log lines (kayvee?)
 // @TODO: breaks for mongo-to-s3, which uses golang-move-repo ci-scripts script :(
 func main() {
+	fmt.Printf("circle-v2-migrate v%s\n", SCRIPT_VERSION)
 	v1, err := readCircleYaml()
 	if err != nil {
 		log.Fatal(err)
@@ -37,7 +40,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Println("---------- circle YAML Preview ---------")
+	// fmt.Println("---------- circle YAML Preview ---------")
 	marshalled, err := yaml.Marshal(v2)
 	if err != nil {
 		fmt.Printf("Failed to Marshal v2 yml:\n %s", err)
@@ -45,7 +48,7 @@ func main() {
 		// fmt.Println(string(marshalled))
 	}
 
-	fmt.Println("----------------------------------------")
+	// fmt.Println("----------------------------------------")
 
 	// after translation, write marshalled YAML to .circleci/config.yml
 	if _, err := os.Stat("./.circleci"); err != nil {
@@ -393,6 +396,7 @@ func determineDatabaseTypes() map[string]struct{} {
 // -- true if a Makefile contains the text `psql`
 // -- false otherwise
 func needsPostgreSQL() bool {
+	// @TODO: could also check for pq in Gopkg.toml, for go repos -- but does this always mean it's used in tests?
 	postgresqlCheckRegexp := regexp.MustCompile(`psql`)
 	makefile, err := ioutil.ReadFile("Makefile")
 	if err != nil {
@@ -406,6 +410,7 @@ func needsPostgreSQL() bool {
 // -- true if a file with `test` in the name contains the text `testMongoURL`
 // -- false otherwise
 func needsMongoDB() bool {
+	// @TODO: could also check for mgo in Gopkg.toml, for go repos -- but does this always mean it's used in tests?
 	// check Makefile for MONGO_TEST_DB
 	mongoCheckRegexp := regexp.MustCompile(`MONGO_TEST_DB`)
 	makefile, err := ioutil.ReadFile("Makefile")
