@@ -416,12 +416,14 @@ func needsPostgreSQL() bool {
 func needsMongoDB() bool {
 	// @TODO: could also check for mgo in Gopkg.toml, for go repos -- but does this always mean it's used in tests?
 	// check Makefile for MONGO_TEST_DB
-	mongoCheckRegexp := regexp.MustCompile(`MONGO_TEST_DB`)
+	// @TODO update comment; use "or" in regexp
+	mongoCheckRegexp1 := regexp.MustCompile(`MONGO_TEST_DB`)
+	mongoCheckRegexp2 := regexp.MustCompile(`mongodb://localhost`)
 	makefile, err := ioutil.ReadFile("Makefile")
 	if err != nil {
 		log.Fatal(err)
 	}
-	if mongoCheckRegexp.Match(makefile) {
+	if mongoCheckRegexp1.Match(makefile) || mongoCheckRegexp2.Match(makefile) {
 		return true
 	}
 	// check test files for testMongoURL
