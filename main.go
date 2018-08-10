@@ -341,6 +341,10 @@ func determineWorkingDirectory(appType string) (string, error) {
 		return "", fmt.Errorf("failed to find repo in %s", dir)
 	}
 	repo := splitDir[len(splitDir)-1]
+	// for microplane compaibility:
+	if repo == "planned" {
+		repo = splitDir[len(splitDir)-3]
+	}
 
 	// put together working directory string
 	if appType == GOLANG_APP_TYPE || appType == WAG_APP_TYPE {
