@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 
@@ -377,17 +378,55 @@ func determineImageConstraints() models.ImageConstraints {
 	return imageConstraints
 }
 
+// determineDatabaseTypes returns a set of database types needed for tests
 func determineDatabaseTypes() map[string]struct{} {
 	databaseTypes := map[string]struct{}{}
+	if needsPostgreSQL() {
+		databaseTypes[POSTGRESQL_DB_TYPE] = struct{}{}
+	}
+	if needsMongoDB() {
+		databaseTypes[MONGO_DB_TYPE] = struct{}{}
+	}
+	return databaseTypes
+}
+
+// needsPostgreSQL returns true if tests rely on postgresql, based on these criteria:
+// -- true if a Makefile contains the text `psql`
+// -- false otherwise
+func needsPostgreSQL() bool {
 	postgresqlCheckRegexp := regexp.MustCompile(`psql`)
 	makefile, err := ioutil.ReadFile("Makefile")
 	if err != nil {
 		log.Fatal(err)
 	}
-	if postgresqlCheckRegexp.Match(makefile) {
-		databaseTypes[POSTGRESQL_DB_TYPE] = struct{}{}
+	return postgresqlCheckRegexp.Match(makefile)
+}
+
+// needsMongoDB returns true if tests rely on mongodb, based on these criteria:
+// -- true if Makefile contains the text `MONGO_TEST_DB`
+// -- true if a file with `test` in the name contains the text `testMongoURL`
+// -- false otherwise
+func needsMongoDB() bool {
+	// check Makefile for MONGO_TEST_DB
+	mongoCheckRegexp := regexp.MustCompile(`MONGO_TEST_DB`)
+	makefile, err := ioutil.ReadFile("Makefile")
+	if err != nil {
+		log.Fatal(err)
 	}
-	return databaseTypes
+	if mongoCheckRegexp.Match(makefile) {
+		return true
+	}
+	// check test files for testMongoURL
+	// grep --include=\*test* -rnw . -e "testMongoURL" --exclude-dir={vendor,gen-*}
+	cmd := exec.Command("/bin/sh", "-c", "fgrep --include=\\*test* -rnw . -e \"testMongoURL\" --exclude-dir={vendor,gen-*}")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if len(string(output)) > 0 {
+			fmt.Printf("\n\n!Warning: failed to check for mongo. Error: %s\n\n", string(output))
+		}
+		return false
+	}
+	return len(string(output)) > 0
 }
 
 // determineGoVersion determines version of go in use for an app
@@ -463,10 +502,17 @@ func getImage(constraints models.ImageConstraints) models.DockerImage {
 	return defaultImage
 }
 
+// getDatabaseImages returns a slice of database images that a repo needs to build
+// (over and above its primary, base image) based on database types it uses
 func getDatabaseImages(constraints models.ImageConstraints) []models.DockerImage {
 	dbImageMap := map[string]models.DockerImage{
+		// @TODO: SHAs, also decide most appropriate images to use
 		POSTGRESQL_DB_TYPE: models.DockerImage{
-			Image: "circleci/postgres:9.4-alpine",
+			Image: "circleci/postgres:9.4-alpine-ram",
+		},
+		MONGO_DB_TYPE: models.DockerImage{
+			// @TODO: 3.4?
+			Image: "circleci/mongo:3.2.20-jessie-ram",
 		},
 	}
 	dbImages := []models.DockerImage{}
