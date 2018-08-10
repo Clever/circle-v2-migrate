@@ -21,6 +21,7 @@ const UNKNOWN_APP_TYPE = "unknown"
 // https://circleci.com/docs/2.0/migrating-from-1-2/
 
 // @TODO: add info about target repo (e.g., name) to log lines (kayvee?)
+// @TODO: breaks for mongo-to-s3, which uses golang-move-repo ci-scripts script :(
 func main() {
 	v1, err := readCircleYaml()
 	if err != nil {
@@ -32,18 +33,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Println("V1")
-	fmt.Println(v1)
-
-	fmt.Println("V2")
-	fmt.Println(v2)
-
 	fmt.Println("---------- circle YAML Preview ---------")
 	marshalled, err := yaml.Marshal(v2)
 	if err != nil {
 		fmt.Printf("Failed to Marshal v2 yml:\n %s", err)
 	} else {
-		fmt.Println(string(marshalled))
+		// fmt.Println(string(marshalled))
 	}
 
 	fmt.Println("----------------------------------------")
@@ -315,6 +310,10 @@ func determineWorkingDirectory(appType string) (string, error) {
 	return fmt.Sprintf("~/Clever/%s", repo), nil
 }
 
+// determineImageConstraints returns the constraints for the docker images section of build, including:
+// -- app type (wag, go, node, unknown)
+// -- version of  image base language/library (e.g., go "1.10", node "6")
+// -- database types needed for tests (e.g., mongo, postgresql)
 func determineImageConstraints() models.ImageConstraints {
 	// if node, will have package.json and node.mk (but this is clever-specific) in main project dir
 	// if go, will have golang.mk (but this is clever-specific)
@@ -375,6 +374,7 @@ func determineNodeVersion() string {
 	return version
 }
 
+// getImage returns the primary image needed for a repo to build, based on app type and version
 func getImage(constraints models.ImageConstraints) models.DockerImage {
 	// @TODO (INFRA-3163): add human-readable image tags/other comments for image, if doable in yaml
 	// @TODO: use SHAs for all images
