@@ -18,6 +18,9 @@ const NODE_APP_TYPE = "node"
 const WAG_APP_TYPE = "wag"
 const UNKNOWN_APP_TYPE = "unknown"
 
+const MONGO_DB_TYPE = "mongo"
+const POSTGRESQL_DB_TYPE = "postgresql"
+
 // https://circleci.com/docs/2.0/migrating-from-1-2/
 
 // @TODO: add info about target repo (e.g., name) to log lines (kayvee?)
@@ -98,12 +101,10 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	appType := imageConstraints.AppType
 	primaryImage := getImage(imageConstraints)
 	v2.Jobs.Build.Docker = []models.DockerImage{
-		models.DockerImage{
-			Image: primaryImage,
-		},
+		primaryImage,
 	}
 	// @TODO (INFRA-3159): Determine and add additional database image(s) needed
-	dbImages := []models.DockerImage{}
+	dbImages := getDatabaseImages(imageConstraints)
 	v2.Jobs.Build.Docker = append(v2.Jobs.Build.Docker, dbImages...)
 
 	// Determine working directory
@@ -148,6 +149,12 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 		addNPMInstallStep(&v2)
 	}
 
+	// @TODO: includes is not actually a thing. swith databaseTypes to map[string]struct{}
+	_, usesPostgresql := imageConstraints.DatabaseTypes[POSTGRESQL_DB_TYPE]
+	if usesPostgresql {
+		addInstallPSQLStep(&v2)
+		addWaitForPostgresStep(&v2)
+	}
 	// translate COMPILE & TEST steps
 	translateCompileSteps(&v1, &v2)
 	translateTestSteps(&v1, &v2)
@@ -291,6 +298,34 @@ func addCloneCIScriptsStep(v2 *models.CircleYamlV2) {
 	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, cloneCIScriptsStep)
 }
 
+func addInstallPSQLStep(v2 *models.CircleYamlV2) {
+	installPSQLStep := map[string]interface{}{
+		"run": map[string]string{
+			"name":    "Install psql",
+			"command": "sudo apt-get install postgresql",
+		},
+	}
+	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, installPSQLStep)
+}
+
+func addWaitForPostgresStep(v2 *models.CircleYamlV2) {
+	waitForPostgresStep := map[string]interface{}{
+		"run": map[string]string{
+			"name": "Wait for postgres database to be ready",
+			"command": `echo Waiting for postgres
+for i in ` + "`seq 1 10`;" + `
+do
+  nc -z localhost 5432 && echo Success && exit 0
+  echo -n .
+  sleep 1
+done
+echo Failed waiting for postgres && exit 1`,
+		},
+	}
+	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, waitForPostgresStep)
+
+}
+
 func determineWorkingDirectory(appType string) (string, error) {
 	// @TODO: determine decent working directory depending on app type for non-(go, wag, node) apps
 	// go, wag: /go/src/github.com/Clever/catapult
@@ -338,7 +373,21 @@ func determineImageConstraints() models.ImageConstraints {
 			Version: determineNodeVersion(),
 		}
 	}
+	imageConstraints.DatabaseTypes = determineDatabaseTypes()
 	return imageConstraints
+}
+
+func determineDatabaseTypes() map[string]struct{} {
+	databaseTypes := map[string]struct{}{}
+	postgresqlCheckRegexp := regexp.MustCompile(`psql`)
+	makefile, err := ioutil.ReadFile("Makefile")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if postgresqlCheckRegexp.Match(makefile) {
+		databaseTypes[POSTGRESQL_DB_TYPE] = struct{}{}
+	}
+	return databaseTypes
 }
 
 // determineGoVersion determines version of go in use for an app
@@ -417,4 +466,23 @@ func getImage(constraints models.ImageConstraints) string {
 	}
 	fmt.Printf("No circleci image selected for app type %s, version %s -- using default\n", constraints.AppType, constraints.Version)
 	return defaultImage
+}
+
+func getDatabaseImages(constraints models.ImageConstraints) []models.DockerImage {
+	dbImageMap := map[string]models.DockerImage{
+		POSTGRESQL_DB_TYPE: models.DockerImage{
+			Image: "circleci/postgres:9.4-alpine",
+		},
+	}
+	dbImages := []models.DockerImage{}
+	var dbImage models.DockerImage
+	var ok bool
+	for dbType, _ := range constraints.DatabaseTypes {
+		dbImage, ok = dbImageMap[dbType]
+		if !ok {
+			fmt.Printf("Error!!! -- cannot find database image for database type %s\n", dbType)
+		}
+		dbImages = append(dbImages, dbImage)
+	}
+	return dbImages
 }
