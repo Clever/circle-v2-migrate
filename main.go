@@ -131,9 +131,6 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 		}
 	}
 
-	// Install awscli for ECR interactions (used in docker publish steps)
-	addInstallAWSCLIStep(&v2)
-
 	// Create directories that were automatically created in CircleCI 1.0
 	addCreateCIArtifactDirsStep(&v2)
 
@@ -145,15 +142,18 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 		addNPMInstallStep(&v2)
 	}
 
-	// @TODO: includes is not actually a thing. swith databaseTypes to map[string]struct{}
 	_, usesPostgresql := imageConstraints.DatabaseTypes[POSTGRESQL_DB_TYPE]
 	if usesPostgresql {
 		addInstallPSQLStep(&v2)
 		addWaitForPostgresStep(&v2)
 	}
+
 	// translate COMPILE & TEST steps
 	translateCompileSteps(&v1, &v2)
 	translateTestSteps(&v1, &v2)
+
+	// Install awscli for ECR interactions (used in docker publish deployment steps)
+	addInstallAWSCLIStep(&v2)
 
 	// translate and deduplicate DEPLOYMENT steps on master and non-master branches
 	err = translateDeploySteps(&v1, &v2)
