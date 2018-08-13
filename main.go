@@ -14,7 +14,7 @@ import (
 	"github.com/Clever/yaml"
 )
 
-const SCRIPT_VERSION = "0.1.0"
+const SCRIPT_VERSION = "0.2.0"
 
 const GOLANG_APP_TYPE = "go"
 const NODE_APP_TYPE = "node"
@@ -417,13 +417,12 @@ func needsMongoDB() bool {
 	// @TODO: could also check for mgo in Gopkg.toml, for go repos -- but does this always mean it's used in tests?
 	// check Makefile for MONGO_TEST_DB
 	// @TODO update comment; use "or" in regexp
-	mongoCheckRegexp1 := regexp.MustCompile(`MONGO_TEST_DB`)
-	mongoCheckRegexp2 := regexp.MustCompile(`mongodb://localhost`)
+	mongoCheckRegexp := regexp.MustCompile(`MONGO_TEST_DB|mongodb://localhost|mongodb://127.0.0.1`)
 	makefile, err := ioutil.ReadFile("Makefile")
 	if err != nil {
 		log.Fatal(err)
 	}
-	if mongoCheckRegexp1.Match(makefile) || mongoCheckRegexp2.Match(makefile) {
+	if mongoCheckRegexp.Match(makefile) {
 		return true
 	}
 	// check test files for testMongoURL
