@@ -14,7 +14,7 @@ import (
 	"github.com/Clever/yaml"
 )
 
-const SCRIPT_VERSION = "0.2.0"
+const SCRIPT_VERSION = "0.3.0"
 
 const GOLANG_APP_TYPE = "go"
 const NODE_APP_TYPE = "node"
@@ -138,10 +138,11 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	addCreateCIArtifactDirsStep(&v2)
 
 	// Set up .npmrc if needed (for using private npm packages)
-	// @TODO (INFRA-3149): is the set of apps with NODE_APP_TYPE the same as apps with .npmrc_docker files?
-	// (this is for when app has .npmrc_docker file)
-	if appType == NODE_APP_TYPE {
+	if _, err := os.Stat("./.npmrc_docker"); err == nil {
 		addSetupNPMRCStep(&v2)
+	}
+
+	if appType == NODE_APP_TYPE {
 		addNPMInstallStep(&v2)
 	}
 
@@ -154,6 +155,11 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	// translate COMPILE & TEST steps
 	translateCompileSteps(&v1, &v2)
 	translateTestSteps(&v1, &v2)
+
+	// Add node for npm publish step in WAG repos
+	if appType == WAG_APP_TYPE {
+		addInstallNodeStep(&v2)
+	}
 
 	// Install awscli for ECR interactions (used in docker publish deployment steps)
 	addInstallAWSCLIStep(&v2)
@@ -250,6 +256,17 @@ func addCreateCIArtifactDirsStep(v2 *models.CircleYamlV2) {
 		},
 	}
 	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, createCIArtifactsDirsStep)
+}
+
+func addInstallNodeStep(v2 *models.CircleYamlV2) {
+	installNodeStep := map[string]interface{}{
+		"run": map[string]string{
+			"name": "Install node for npm publish",
+			"command": `curl -sL https://deb.nodesource.com/setup_10.x | sudo -E bash -
+sudo apt-get install -y nodejs`,
+		},
+	}
+	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, installNodeStep)
 }
 
 func addSetupNPMRCStep(v2 *models.CircleYamlV2) {
