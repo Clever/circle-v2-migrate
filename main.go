@@ -483,13 +483,37 @@ func determineGoVersion() string {
 // determineNodeVersion determines version of node for an app
 // @TODO (INFRA-3156): implement (determine correct node version for non-wag node apps)
 func determineNodeVersion() string {
-	version := "8"
+	defaultVersion := "8"
 	versionCheckRegexp := regexp.MustCompile(`NODE_VERSION := "v([0-9]+)"`)
 	versionCheck := versionCheckRegexp.FindSubmatch(makefile)
 	if versionCheck != nil {
-		version = string(versionCheck[1])
+		return string(versionCheck[1])
 	}
-	return version
+	dockerfile, err := ioutil.ReadFile("Dockerfile")
+	if err != nil {
+		fmt.Printf("error reading dockerfile: %s\n", err.Error())
+	} else {
+		fmt.Println("checking node version in dockerfile")
+		dockerfileVersionCheckRegexp := regexp.MustCompile(`[a-z]*\/?node[a-z]*:([0-9]+)`)
+		dockerfileVersionCheck := dockerfileVersionCheckRegexp.FindSubmatch(dockerfile)
+		if dockerfileVersionCheck != nil {
+			return string(dockerfileVersionCheck[1])
+		}
+	}
+	circleYAML, err := ioutil.ReadFile("circle.yml")
+	if err != nil {
+		fmt.Printf("error reading circle.yml to find node version: %s\n", err.Error())
+	} else {
+		fmt.Println("checking node version in circle.yml")
+		circleYAMLVersionCheckRegexp := regexp.MustCompile(`version:[ ]*([0-9])`)
+		circleYAMLVersionCheck := circleYAMLVersionCheckRegexp.FindSubmatch(circleYAML)
+		if circleYAMLVersionCheck != nil {
+			return string(circleYAMLVersionCheck[1])
+		}
+
+	}
+	fmt.Println("using default node version")
+	return defaultVersion
 }
 
 // getImage returns the primary image needed for a repo to build, based on app type and version
@@ -525,6 +549,7 @@ func getImage(constraints models.ImageConstraints) models.DockerImage {
 	} else if appType == WAG_APP_TYPE {
 		golangBaseImage, ok := golangImageMap[version]
 		if ok {
+			//@TODO: -node version not actually availabe for go 1.8
 			return models.DockerImage{Image: fmt.Sprintf("%s-node", golangBaseImage.Image)}
 		}
 	} else if appType == NODE_APP_TYPE {
