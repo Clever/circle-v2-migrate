@@ -14,7 +14,7 @@ import (
 	"github.com/Clever/yaml"
 )
 
-const SCRIPT_VERSION = "0.3.0"
+const SCRIPT_VERSION = "0.5.0"
 
 const GOLANG_APP_TYPE = "go"
 const NODE_APP_TYPE = "node"
@@ -156,11 +156,6 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	translateCompileSteps(&v1, &v2)
 	translateTestSteps(&v1, &v2)
 
-	// Add node for npm publish step in WAG repos
-	if appType == WAG_APP_TYPE {
-		addInstallNodeStep(&v2)
-	}
-
 	// Install awscli for ECR interactions (used in docker publish deployment steps)
 	addInstallAWSCLIStep(&v2)
 
@@ -273,8 +268,7 @@ func addSetupNPMRCStep(v2 *models.CircleYamlV2) {
 	setupNPMRCStep := map[string]interface{}{
 		"run": map[string]string{
 			"name": "Set up .npmrc",
-			"command": `
-sed -i.bak s/\${npm_auth_token}/$NPM_TOKEN/ .npmrc_docker
+			"command": `sed -i.bak s/\${npm_auth_token}/$NPM_TOKEN/ .npmrc_docker
 mv .npmrc_docker .npmrc`,
 		},
 	}
@@ -381,7 +375,13 @@ func determineImageConstraints() models.ImageConstraints {
 	imageConstraints := models.ImageConstraints{
 		AppType: "unknown",
 	}
-	if _, err := os.Stat("./swagger.yml"); err == nil {
+
+	if _, err := os.Stat("./package.json"); err == nil {
+		imageConstraints = models.ImageConstraints{
+			AppType: NODE_APP_TYPE,
+			Version: determineNodeVersion(),
+		}
+	} else if _, err := os.Stat("./swagger.yml"); err == nil {
 		imageConstraints = models.ImageConstraints{
 			AppType: WAG_APP_TYPE,
 			Version: determineGoVersion(),
@@ -522,10 +522,15 @@ func getImage(constraints models.ImageConstraints) models.DockerImage {
 		"6":  models.DockerImage{Image: "circleci/node:6.14.3-stretch"},
 	}
 
-	if appType == GOLANG_APP_TYPE || appType == WAG_APP_TYPE {
+	if appType == GOLANG_APP_TYPE {
 		golangBaseImage, ok := golangImageMap[version]
 		if ok {
 			return golangBaseImage
+		}
+	} else if appType == WAG_APP_TYPE {
+		golangBaseImage, ok := golangImageMap[version]
+		if ok {
+			return models.DockerImage{Image: fmt.Sprintf("%s-node", golangBaseImage.Image)}
 		}
 	} else if appType == NODE_APP_TYPE {
 		nodeBaseImage, ok := nodeImageMap[version]
