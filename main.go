@@ -14,7 +14,7 @@ import (
 	"github.com/Clever/yaml"
 )
 
-const SCRIPT_VERSION = "0.5.0"
+const SCRIPT_VERSION = "0.6.0"
 
 const GOLANG_APP_TYPE = "go"
 const NODE_APP_TYPE = "node"
@@ -23,6 +23,10 @@ const UNKNOWN_APP_TYPE = "unknown"
 
 const MONGO_DB_TYPE = "mongo"
 const POSTGRESQL_DB_TYPE = "postgresql"
+
+var (
+	makefile = []byte{}
+)
 
 // https://circleci.com/docs/2.0/migrating-from-1-2/
 
@@ -95,6 +99,13 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 		Version: 2,
 	}
 
+	makefileBytes, err := ioutil.ReadFile("Makefile")
+	if err == nil {
+		makefile = makefileBytes
+	} else {
+		// if no makefile, continue with default
+		fmt.Println("no Makefile")
+	}
 	// Determine base image to use based on app type (go/wag/node/...) and language version
 	imageConstraints := determineImageConstraints()
 	appType := imageConstraints.AppType
@@ -419,10 +430,6 @@ func determineDatabaseTypes() map[string]struct{} {
 func needsPostgreSQL() bool {
 	// @TODO: could also check for pq in Gopkg.toml, for go repos -- but does this always mean it's used in tests?
 	postgresqlCheckRegexp := regexp.MustCompile(`psql`)
-	makefile, err := ioutil.ReadFile("Makefile")
-	if err != nil {
-		log.Fatal(err)
-	}
 	postgresqlCircleCheckRegexp := regexp.MustCompile(`postgres`)
 	circleYAML, err := ioutil.ReadFile("circle.yml")
 	if err != nil {
@@ -443,10 +450,6 @@ func needsMongoDB() bool {
 	// check Makefile for MONGO_TEST_DB
 	// @TODO update comment; use "or" in regexp
 	mongoCheckRegexp := regexp.MustCompile(`MONGO_TEST_DB|mongodb://localhost|mongodb://127.0.0.1`)
-	makefile, err := ioutil.ReadFile("Makefile")
-	if err != nil {
-		log.Fatal(err)
-	}
 	if mongoCheckRegexp.Match(makefile) {
 		return true
 	}
@@ -470,10 +473,6 @@ func needsMongoDB() bool {
 func determineGoVersion() string {
 	version := "1.10"
 	versionCheckRegexp := regexp.MustCompile(`golang-version-check,([0-1].[0-9]+)`)
-	makefile, err := ioutil.ReadFile("Makefile")
-	if err != nil {
-		log.Fatal(err)
-	}
 	versionCheck := versionCheckRegexp.FindSubmatch(makefile)
 	if versionCheck != nil {
 		version = string(versionCheck[1])
@@ -486,10 +485,6 @@ func determineGoVersion() string {
 func determineNodeVersion() string {
 	version := "8"
 	versionCheckRegexp := regexp.MustCompile(`NODE_VERSION := "v([0-9]+)"`)
-	makefile, err := ioutil.ReadFile("Makefile")
-	if err != nil {
-		log.Fatal(err)
-	}
 	versionCheck := versionCheckRegexp.FindSubmatch(makefile)
 	if versionCheck != nil {
 		version = string(versionCheck[1])
