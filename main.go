@@ -14,7 +14,7 @@ import (
 	"github.com/Clever/yaml"
 )
 
-const SCRIPT_VERSION = "0.3.0"
+const SCRIPT_VERSION = "0.6.0"
 
 const GOLANG_APP_TYPE = "go"
 const NODE_APP_TYPE = "node"
@@ -23,6 +23,11 @@ const UNKNOWN_APP_TYPE = "unknown"
 
 const MONGO_DB_TYPE = "mongo"
 const POSTGRESQL_DB_TYPE = "postgresql"
+
+var (
+	makefile      = []byte{}
+	circleCI1File = []byte{}
+)
 
 // https://circleci.com/docs/2.0/migrating-from-1-2/
 
@@ -72,13 +77,17 @@ func main() {
 func readCircleYaml() (models.CircleYamlV1, error) {
 	path := "./circle.yml"
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return models.CircleYamlV1{}, fmt.Errorf("circle.yml not found at %s", path)
+		path = "./circle.yml.bak"
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return models.CircleYamlV1{}, fmt.Errorf("circle.yml not found at circle.yml or circle.yml.bak")
+		}
 	}
 
 	contents, err := ioutil.ReadFile(path)
 	if err != nil {
 		return models.CircleYamlV1{}, err
 	}
+	circleCI1File = contents
 
 	var out models.CircleYamlV1
 	if err := yaml.Unmarshal(contents, &out); err != nil {
@@ -95,6 +104,13 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 		Version: 2,
 	}
 
+	makefileBytes, err := ioutil.ReadFile("Makefile")
+	if err == nil {
+		makefile = makefileBytes
+	} else {
+		// if no makefile, continue with default
+		fmt.Println("no Makefile")
+	}
 	// Determine base image to use based on app type (go/wag/node/...) and language version
 	imageConstraints := determineImageConstraints()
 	appType := imageConstraints.AppType
@@ -155,11 +171,6 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	// translate COMPILE & TEST steps
 	translateCompileSteps(&v1, &v2)
 	translateTestSteps(&v1, &v2)
-
-	// Add node for npm publish step in WAG repos
-	if appType == WAG_APP_TYPE {
-		addInstallNodeStep(&v2)
-	}
 
 	// Install awscli for ECR interactions (used in docker publish deployment steps)
 	addInstallAWSCLIStep(&v2)
@@ -273,8 +284,7 @@ func addSetupNPMRCStep(v2 *models.CircleYamlV2) {
 	setupNPMRCStep := map[string]interface{}{
 		"run": map[string]string{
 			"name": "Set up .npmrc",
-			"command": `
-sed -i.bak s/\${npm_auth_token}/$NPM_TOKEN/ .npmrc_docker
+			"command": `sed -i.bak s/\${npm_auth_token}/$NPM_TOKEN/ .npmrc_docker
 mv .npmrc_docker .npmrc`,
 		},
 	}
@@ -381,7 +391,13 @@ func determineImageConstraints() models.ImageConstraints {
 	imageConstraints := models.ImageConstraints{
 		AppType: "unknown",
 	}
-	if _, err := os.Stat("./swagger.yml"); err == nil {
+
+	if _, err := os.Stat("./package.json"); err == nil {
+		imageConstraints = models.ImageConstraints{
+			AppType: NODE_APP_TYPE,
+			Version: determineNodeVersion(),
+		}
+	} else if _, err := os.Stat("./swagger.yml"); err == nil {
 		imageConstraints = models.ImageConstraints{
 			AppType: WAG_APP_TYPE,
 			Version: determineGoVersion(),
@@ -419,19 +435,8 @@ func determineDatabaseTypes() map[string]struct{} {
 func needsPostgreSQL() bool {
 	// @TODO: could also check for pq in Gopkg.toml, for go repos -- but does this always mean it's used in tests?
 	postgresqlCheckRegexp := regexp.MustCompile(`psql`)
-	makefile, err := ioutil.ReadFile("Makefile")
-	if err != nil {
-		log.Fatal(err)
-	}
 	postgresqlCircleCheckRegexp := regexp.MustCompile(`postgres`)
-	circleYAML, err := ioutil.ReadFile("circle.yml")
-	if err != nil {
-		circleYAML, err = ioutil.ReadFile("circle.yml.bak")
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-	return postgresqlCheckRegexp.Match(makefile) || postgresqlCircleCheckRegexp.Match(circleYAML)
+	return postgresqlCheckRegexp.Match(makefile) || postgresqlCircleCheckRegexp.Match(circleCI1File)
 }
 
 // needsMongoDB returns true if tests rely on mongodb, based on these criteria:
@@ -443,10 +448,6 @@ func needsMongoDB() bool {
 	// check Makefile for MONGO_TEST_DB
 	// @TODO update comment; use "or" in regexp
 	mongoCheckRegexp := regexp.MustCompile(`MONGO_TEST_DB|mongodb://localhost|mongodb://127.0.0.1`)
-	makefile, err := ioutil.ReadFile("Makefile")
-	if err != nil {
-		log.Fatal(err)
-	}
 	if mongoCheckRegexp.Match(makefile) {
 		return true
 	}
@@ -470,10 +471,6 @@ func needsMongoDB() bool {
 func determineGoVersion() string {
 	version := "1.10"
 	versionCheckRegexp := regexp.MustCompile(`golang-version-check,([0-1].[0-9]+)`)
-	makefile, err := ioutil.ReadFile("Makefile")
-	if err != nil {
-		log.Fatal(err)
-	}
 	versionCheck := versionCheckRegexp.FindSubmatch(makefile)
 	if versionCheck != nil {
 		version = string(versionCheck[1])
@@ -484,17 +481,33 @@ func determineGoVersion() string {
 // determineNodeVersion determines version of node for an app
 // @TODO (INFRA-3156): implement (determine correct node version for non-wag node apps)
 func determineNodeVersion() string {
-	version := "8"
+	defaultVersion := "8"
 	versionCheckRegexp := regexp.MustCompile(`NODE_VERSION := "v([0-9]+)"`)
-	makefile, err := ioutil.ReadFile("Makefile")
-	if err != nil {
-		log.Fatal(err)
-	}
 	versionCheck := versionCheckRegexp.FindSubmatch(makefile)
 	if versionCheck != nil {
-		version = string(versionCheck[1])
+		return string(versionCheck[1])
 	}
-	return version
+	dockerfile, err := ioutil.ReadFile("Dockerfile")
+	if err != nil {
+		fmt.Printf("error reading dockerfile: %s\n", err.Error())
+	} else {
+		fmt.Println("checking node version in dockerfile")
+		dockerfileVersionCheckRegexp := regexp.MustCompile(`[a-z]*\/?node[a-z]*:([0-9]+)`)
+		dockerfileVersionCheck := dockerfileVersionCheckRegexp.FindSubmatch(dockerfile)
+		if dockerfileVersionCheck != nil {
+			return string(dockerfileVersionCheck[1])
+		}
+	}
+
+	fmt.Println("checking node version in circle.yml")
+	circleCI1FileVersionCheckRegexp := regexp.MustCompile(`version:[ ]*([0-9])`)
+	circleCI1FileVersionCheck := circleCI1FileVersionCheckRegexp.FindSubmatch(circleCI1File)
+	if circleCI1FileVersionCheck != nil {
+		return string(circleCI1FileVersionCheck[1])
+	}
+
+	fmt.Println("using default node version")
+	return defaultVersion
 }
 
 // getImage returns the primary image needed for a repo to build, based on app type and version
@@ -522,10 +535,16 @@ func getImage(constraints models.ImageConstraints) models.DockerImage {
 		"6":  models.DockerImage{Image: "circleci/node:6.14.3-stretch"},
 	}
 
-	if appType == GOLANG_APP_TYPE || appType == WAG_APP_TYPE {
+	if appType == GOLANG_APP_TYPE {
 		golangBaseImage, ok := golangImageMap[version]
 		if ok {
 			return golangBaseImage
+		}
+	} else if appType == WAG_APP_TYPE {
+		golangBaseImage, ok := golangImageMap[version]
+		if ok {
+			//@TODO: -node version not actually availabe for go 1.8
+			return models.DockerImage{Image: fmt.Sprintf("%s-node", golangBaseImage.Image)}
 		}
 	} else if appType == NODE_APP_TYPE {
 		nodeBaseImage, ok := nodeImageMap[version]
