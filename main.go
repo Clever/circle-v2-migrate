@@ -14,7 +14,7 @@ import (
 	"github.com/Clever/yaml"
 )
 
-const SCRIPT_VERSION = "0.6.0"
+const SCRIPT_VERSION = "0.7.0"
 
 const GOLANG_APP_TYPE = "go"
 const NODE_APP_TYPE = "node"
@@ -431,17 +431,31 @@ func determineDatabaseTypes() map[string]struct{} {
 
 // needsPostgreSQL returns true if tests rely on postgresql, based on these criteria:
 // -- true if a Makefile contains the text `psql`
+// -- true if a file with `test` in the name contains the text `postgres`
 // -- false otherwise
 func needsPostgreSQL() bool {
 	// @TODO: could also check for pq in Gopkg.toml, for go repos -- but does this always mean it's used in tests?
 	postgresqlCheckRegexp := regexp.MustCompile(`psql`)
 	postgresqlCircleCheckRegexp := regexp.MustCompile(`postgres`)
-	return postgresqlCheckRegexp.Match(makefile) || postgresqlCircleCheckRegexp.Match(circleCI1File)
+	if postgresqlCheckRegexp.Match(makefile) || postgresqlCircleCheckRegexp.Match(circleCI1File) {
+		return true
+	}
+	// check test files for mention of postgres
+	// grep --include=\*test* -rnw . -e "postgres" --exclude-dir={vendor,gen-*}
+	cmd := exec.Command("/bin/sh", "-c", "grep --include=\\*test* -rnw . -e \"postgres\" --exclude-dir={vendor,gen-*}")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if len(string(output)) > 0 {
+			fmt.Printf("\n\n!Warning: failed to check for postgres. Error: %s\n\n", string(output))
+		}
+		return false
+	}
+	return len(string(output)) > 0
 }
 
 // needsMongoDB returns true if tests rely on mongodb, based on these criteria:
 // -- true if Makefile contains the text `MONGO_TEST_DB`
-// -- true if a file with `test` in the name contains the text `testMongoURL`
+// -- true if a file with `test` in the name contains the text `Mongo` or `mongo`
 // -- false otherwise
 func needsMongoDB() bool {
 	// @TODO: could also check for mgo in Gopkg.toml, for go repos -- but does this always mean it's used in tests?
@@ -451,9 +465,9 @@ func needsMongoDB() bool {
 	if mongoCheckRegexp.Match(makefile) {
 		return true
 	}
-	// check test files for testMongoURL
-	// grep --include=\*test* -rnw . -e "testMongoURL" --exclude-dir={vendor,gen-*}
-	cmd := exec.Command("/bin/sh", "-c", "fgrep --include=\\*test* -rnw . -e \"testMongoURL\" --exclude-dir={vendor,gen-*}")
+	// check test files for mention of mongo
+	// grep --include=\*test* -rnw . -e "[a-z]*[mM]ongo" --exclude-dir={vendor,gen-*}
+	cmd := exec.Command("/bin/sh", "-c", "grep --include=\\*test* -rnw . -e \"[a-z]*[mM]ongo\" --exclude-dir={vendor,gen-*}")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if len(string(output)) > 0 {
