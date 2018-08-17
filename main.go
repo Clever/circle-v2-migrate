@@ -441,7 +441,7 @@ func needsPostgreSQL() bool {
 
 // needsMongoDB returns true if tests rely on mongodb, based on these criteria:
 // -- true if Makefile contains the text `MONGO_TEST_DB`
-// -- true if a file with `test` in the name contains the text `testMongoURL`
+// -- true if a file with `test` in the name contains the text `Mongo`
 // -- false otherwise
 func needsMongoDB() bool {
 	// @TODO: could also check for mgo in Gopkg.toml, for go repos -- but does this always mean it's used in tests?
@@ -452,8 +452,8 @@ func needsMongoDB() bool {
 		return true
 	}
 	// check test files for testMongoURL
-	// grep --include=\*test* -rnw . -e "testMongoURL" --exclude-dir={vendor,gen-*}
-	cmd := exec.Command("/bin/sh", "-c", "fgrep --include=\\*test* -rnw . -e \"testMongoURL\" --exclude-dir={vendor,gen-*}")
+	// grep --include=\*test* -rnw . -e "[a-z]*[mM]ongo" --exclude-dir={vendor,gen-*}
+	cmd := exec.Command("/bin/sh", "-c", "grep --include=\\*test* -rnw . -e \"[a-z]*[mM]ongo\" --exclude-dir={vendor,gen-*}")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if len(string(output)) > 0 {
