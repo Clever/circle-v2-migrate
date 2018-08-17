@@ -14,7 +14,7 @@ import (
 	"github.com/Clever/yaml"
 )
 
-const SCRIPT_VERSION = "0.6.0"
+const SCRIPT_VERSION = "0.7.0"
 
 const GOLANG_APP_TYPE = "go"
 const NODE_APP_TYPE = "node"
