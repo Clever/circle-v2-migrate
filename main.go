@@ -25,7 +25,8 @@ const MONGO_DB_TYPE = "mongo"
 const POSTGRESQL_DB_TYPE = "postgresql"
 
 var (
-	makefile = []byte{}
+	makefile      = []byte{}
+	circleCI1File = []byte{}
 )
 
 // https://circleci.com/docs/2.0/migrating-from-1-2/
@@ -76,13 +77,17 @@ func main() {
 func readCircleYaml() (models.CircleYamlV1, error) {
 	path := "./circle.yml"
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return models.CircleYamlV1{}, fmt.Errorf("circle.yml not found at %s", path)
+		path = "./circle.yml.bak"
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return models.CircleYamlV1{}, fmt.Errorf("circle.yml not found at circle.yml or circle.yml.bak")
+		}
 	}
 
 	contents, err := ioutil.ReadFile(path)
 	if err != nil {
 		return models.CircleYamlV1{}, err
 	}
+	circleCI1File = contents
 
 	var out models.CircleYamlV1
 	if err := yaml.Unmarshal(contents, &out); err != nil {
@@ -431,14 +436,7 @@ func needsPostgreSQL() bool {
 	// @TODO: could also check for pq in Gopkg.toml, for go repos -- but does this always mean it's used in tests?
 	postgresqlCheckRegexp := regexp.MustCompile(`psql`)
 	postgresqlCircleCheckRegexp := regexp.MustCompile(`postgres`)
-	circleYAML, err := ioutil.ReadFile("circle.yml")
-	if err != nil {
-		circleYAML, err = ioutil.ReadFile("circle.yml.bak")
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-	return postgresqlCheckRegexp.Match(makefile) || postgresqlCircleCheckRegexp.Match(circleYAML)
+	return postgresqlCheckRegexp.Match(makefile) || postgresqlCircleCheckRegexp.Match(circleCI1File)
 }
 
 // needsMongoDB returns true if tests rely on mongodb, based on these criteria:
@@ -500,18 +498,14 @@ func determineNodeVersion() string {
 			return string(dockerfileVersionCheck[1])
 		}
 	}
-	circleYAML, err := ioutil.ReadFile("circle.yml")
-	if err != nil {
-		fmt.Printf("error reading circle.yml to find node version: %s\n", err.Error())
-	} else {
-		fmt.Println("checking node version in circle.yml")
-		circleYAMLVersionCheckRegexp := regexp.MustCompile(`version:[ ]*([0-9])`)
-		circleYAMLVersionCheck := circleYAMLVersionCheckRegexp.FindSubmatch(circleYAML)
-		if circleYAMLVersionCheck != nil {
-			return string(circleYAMLVersionCheck[1])
-		}
 
+	fmt.Println("checking node version in circle.yml")
+	circleCI1FileVersionCheckRegexp := regexp.MustCompile(`version:[ ]*([0-9])`)
+	circleCI1FileVersionCheck := circleCI1FileVersionCheckRegexp.FindSubmatch(circleCI1File)
+	if circleCI1FileVersionCheck != nil {
+		return string(circleCI1FileVersionCheck[1])
 	}
+
 	fmt.Println("using default node version")
 	return defaultVersion
 }
