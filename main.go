@@ -423,7 +423,15 @@ func needsPostgreSQL() bool {
 	if err != nil {
 		log.Fatal(err)
 	}
-	return postgresqlCheckRegexp.Match(makefile)
+	postgresqlCircleCheckRegexp := regexp.MustCompile(`postgres`)
+	circleYAML, err := ioutil.ReadFile("circle.yml")
+	if err != nil {
+		circleYAML, err = ioutil.ReadFile("circle.yml.bak")
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	return postgresqlCheckRegexp.Match(makefile) || postgresqlCircleCheckRegexp.Match(circleYAML)
 }
 
 // needsMongoDB returns true if tests rely on mongodb, based on these criteria:
