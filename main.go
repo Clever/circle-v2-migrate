@@ -14,7 +14,7 @@ import (
 	"github.com/Clever/yaml"
 )
 
-const SCRIPT_VERSION = "0.8.0"
+const SCRIPT_VERSION = "0.9.0"
 
 const GOLANG_APP_TYPE = "go"
 const NODE_APP_TYPE = "node"
@@ -466,8 +466,8 @@ func needsMongoDB() bool {
 		return true
 	}
 	// check test files for mention of mongo
-	// grep --include=\*test* -rnw . -e "[a-z]*[mM]ongo" --exclude-dir={vendor,gen-*}
-	cmd := exec.Command("/bin/sh", "-c", "grep --include=\\*test* -rnw . -e \"[a-z]*[mM]ongo\" --exclude-dir={vendor,gen-*}")
+	// grep --include=\*test* -rnw . -e "[a-z]*[mM]o*n*go" --exclude-dir={vendor,gen-*}
+	cmd := exec.Command("/bin/sh", "-c", "grep --include=\\*test* -rnw . -e \"[a-z]*[mM]o*n*go\" --exclude-dir={vendor,gen-*}")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if len(string(output)) > 0 {
