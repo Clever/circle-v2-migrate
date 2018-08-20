@@ -14,7 +14,7 @@ import (
 	"github.com/Clever/yaml"
 )
 
-const SCRIPT_VERSION = "0.7.0"
+const SCRIPT_VERSION = "0.8.0"
 
 const GOLANG_APP_TYPE = "go"
 const NODE_APP_TYPE = "node"
@@ -211,7 +211,7 @@ func translateTestSteps(v1 *models.CircleYamlV1, v2 *models.CircleYamlV2) {
 
 func translateDeploySteps(v1 *models.CircleYamlV1, v2 *models.CircleYamlV2) error {
 	for key := range v1.Deployment {
-		if key != "master" && key != "non-master" {
+		if key != "master" && key != "non-master" && key != "all" {
 			return fmt.Errorf("unexpected key in `deployment` map = %s", key)
 		}
 	}
