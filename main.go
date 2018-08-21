@@ -14,7 +14,7 @@ import (
 	"github.com/Clever/yaml"
 )
 
-const SCRIPT_VERSION = "0.9.0"
+const SCRIPT_VERSION = "0.10.0"
 
 const GOLANG_APP_TYPE = "go"
 const NODE_APP_TYPE = "node"
@@ -306,6 +306,7 @@ func addInstallAWSCLIStep(v2 *models.CircleYamlV2) {
 		"run": map[string]string{
 			"name": "Install awscli for ECR publish",
 			"command": `cd /tmp/ && wget https://bootstrap.pypa.io/get-pip.py && sudo python get-pip.py
+sudo apt-get update
 sudo apt-get install python-dev
 sudo pip install --upgrade awscli && aws --version
 pip install --upgrade --user awscli`,
