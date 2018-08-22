@@ -14,7 +14,7 @@ import (
 	"github.com/Clever/yaml"
 )
 
-const SCRIPT_VERSION = "0.10.0"
+const SCRIPT_VERSION = "0.11.0"
 
 const GOLANG_APP_TYPE = "go"
 const NODE_APP_TYPE = "node"
@@ -23,6 +23,21 @@ const UNKNOWN_APP_TYPE = "unknown"
 
 const MONGO_DB_TYPE = "mongo"
 const POSTGRESQL_DB_TYPE = "postgresql"
+const REDIS_DB_TYPE = "redis"
+
+var dbImageMap = map[string]models.DockerImage{
+	// @TODO: SHAs, also decide most appropriate images to use
+	POSTGRESQL_DB_TYPE: models.DockerImage{
+		Image: "circleci/postgres:9.4-alpine-ram",
+	},
+	MONGO_DB_TYPE: models.DockerImage{
+		// @TODO: 3.4?
+		Image: "circleci/mongo:3.2.20-jessie-ram",
+	},
+	REDIS_DB_TYPE: models.DockerImage{
+		Image: "redis@sha256:858b1677143e9f8455821881115e276f6177221de1c663d0abef9b2fda02d065",
+	},
+}
 
 var (
 	makefile      = []byte{}
@@ -145,6 +160,10 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	for _, item := range v1.Machine.Services {
 		if item == "docker" {
 			v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, "setup_remote_docker")
+		} else if item == "redis" {
+			v2.Jobs.Build.Docker = append(v2.Jobs.Build.Docker, models.DockerImage{
+				Image: "redis@sha256:858b1677143e9f8455821881115e276f6177221de1c663d0abef9b2fda02d065",
+			})
 		} else {
 			fmt.Printf("!WARNING: ingoring v1.Machine.Services item %s\n\n", item)
 		}
@@ -479,6 +498,24 @@ func needsMongoDB() bool {
 	return len(string(output)) > 0
 }
 
+// needsRedis returns true if tests rely on redis, based on these criteria:
+// -- true if a file with `test` in the name contains the text `redis`
+// -- false otherwise
+// @TODO - currently unused undre the theory that any redis-required repo should have "redis" listed in services
+func needsRedis() bool {
+	// check test files for mention of redis
+	// grep --include=\*test* -rnw . -e "[a-z]*redis" --exclude-dir={vendor,gen-*}
+	cmd := exec.Command("/bin/sh", "-c", "grep --include=\\*test* -rnw . -e \"[a-z]*redis\" --exclude-dir={vendor,gen-*}")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if len(string(output)) > 0 {
+			fmt.Printf("\n\n!Warning: failed to check for redis. Error: %s\n\n", string(output))
+		}
+		return false
+	}
+	return len(string(output)) > 0
+}
+
 // determineGoVersion determines version of go in use for an app
 // this information is in makefile's golang-version-check, e.g.:
 // $(eval $(call golang-version-check,1.10))
@@ -574,16 +611,7 @@ func getImage(constraints models.ImageConstraints) models.DockerImage {
 // getDatabaseImages returns a slice of database images that a repo needs to build
 // (over and above its primary, base image) based on database types it uses
 func getDatabaseImages(constraints models.ImageConstraints) []models.DockerImage {
-	dbImageMap := map[string]models.DockerImage{
-		// @TODO: SHAs, also decide most appropriate images to use
-		POSTGRESQL_DB_TYPE: models.DockerImage{
-			Image: "circleci/postgres:9.4-alpine-ram",
-		},
-		MONGO_DB_TYPE: models.DockerImage{
-			// @TODO: 3.4?
-			Image: "circleci/mongo:3.2.20-jessie-ram",
-		},
-	}
+
 	dbImages := []models.DockerImage{}
 	var dbImage models.DockerImage
 	var ok bool
