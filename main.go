@@ -475,12 +475,10 @@ func needsPostgreSQL() bool {
 
 // needsMongoDB returns true if tests rely on mongodb, based on these criteria:
 // -- true if Makefile contains the text `MONGO_TEST_DB`
-// -- true if a file with `test` in the name contains the text `Mongo` or `mongo`
+// -- true if a file with `test` in the name contains the text `Mongo` or `mongo` or `mgo`
 // -- false otherwise
 func needsMongoDB() bool {
-	// @TODO: could also check for mgo in Gopkg.toml, for go repos -- but does this always mean it's used in tests?
 	// check Makefile for MONGO_TEST_DB
-	// @TODO update comment; use "or" in regexp
 	mongoCheckRegexp := regexp.MustCompile(`MONGO_TEST_DB|mongodb://localhost|mongodb://127.0.0.1`)
 	if mongoCheckRegexp.Match(makefile) {
 		return true
@@ -580,11 +578,11 @@ func getImage(constraints models.ImageConstraints) models.DockerImage {
 		"1.8":  models.DockerImage{Image: "circleci/golang:1.8.7-stretch"},
 	}
 
-	// @TODO (INFRA-3149): base image for node <6 that's not just the xxl default?
 	nodeImageMap := map[string]models.DockerImage{
 		"10": models.DockerImage{Image: "circleci/node:10.8.0-stretch"},
 		"8":  models.DockerImage{Image: "circleci/node:8.11.3-stretch"},
 		"6":  models.DockerImage{Image: "circleci/node:6.14.3-stretch"},
+		"0":  models.DockerImage{Image: "circleci/node:6.14.3-stretch"},
 	}
 
 	if appType == GOLANG_APP_TYPE {
