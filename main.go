@@ -187,9 +187,7 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 			fmt.Printf("invalid node version %s\n", imageConstraints.Version)
 		} else if v < 6 {
 			fmt.Printf("OH NO IT'S NODE %s\n", imageConstraints.Version)
-			log.Fatal(fmt.Sprintf("OH NO IT'S NODE %s\n", imageConstraints.Version))
 		}
-
 	}
 
 	_, usesPostgresql := imageConstraints.DatabaseTypes[POSTGRESQL_DB_TYPE]
