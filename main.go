@@ -15,7 +15,7 @@ import (
 	"github.com/Clever/yaml"
 )
 
-const SCRIPT_VERSION = "0.12.0"
+const SCRIPT_VERSION = "1.0.0"
 
 const GOLANG_APP_TYPE = "go"
 const NODE_APP_TYPE = "node"
@@ -197,6 +197,9 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 		addInstallPSQLStep(&v2)
 		addWaitForPostgresStep(&v2)
 	}
+	// translate DEPENDENCIES steps
+	// @TODO - currenlty can lead to redundancy
+	translateDependenciesSteps(&v1, &v2)
 
 	// translate COMPILE & TEST steps
 	translateCompileSteps(&v1, &v2)
@@ -213,6 +216,18 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	}
 
 	return v2, nil
+}
+
+func translateDependenciesSteps(v1 *models.CircleYamlV1, v2 *models.CircleYamlV2) {
+	for _, item := range v1.Dependencies.Pre {
+		v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, map[string]string{"run": item})
+	}
+	for _, item := range v1.Dependencies.Override {
+		v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, map[string]string{"run": item})
+	}
+	for _, item := range v1.Dependencies.Post {
+		v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, map[string]string{"run": item})
+	}
 }
 
 func translateCompileSteps(v1 *models.CircleYamlV1, v2 *models.CircleYamlV2) {

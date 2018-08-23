@@ -4,7 +4,7 @@
 
 ### Overview
 
-**This is an automated PR created with `circle-v2-migrate` v0.11.0.**
+**This is an automated PR created with `circle-v2-migrate` v1.0.0.**
 
 CircleCI 1.0 is sunsetting August 31st, meaning CircleCI 1.0 builds will no longer work on September 1st.
 
@@ -16,7 +16,7 @@ If you have any questions, please post in the #circleci-1-sunset channel in slac
 
 ### Reviewing & Roll Out Checklist
 
-- [ ] **New: check for redundant steps.**
+- [ ] **New: check for redundant steps from the `circle.yml` `depencencies` section.** Repeated steps should not break code, but they do lead to slower builds.
 
 - [ ] If this repo should be graveyarded, add it to the "graveyard" team in the [CircleCI 1.0 -> 2.0 migration tracking spreadsheet](https://docs.google.com/spreadsheets/d/1Uv6i2TXxZGBUCdjidp2xbqn3gMrgnikJnLgZBXicDBQ/edit?usp=sharing) and close this PR.
 
