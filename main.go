@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/Clever/circle-v2-migrate/models"
@@ -14,7 +15,7 @@ import (
 	"github.com/Clever/yaml"
 )
 
-const SCRIPT_VERSION = "0.10.0"
+const SCRIPT_VERSION = "1.0.0"
 
 const GOLANG_APP_TYPE = "go"
 const NODE_APP_TYPE = "node"
@@ -23,6 +24,21 @@ const UNKNOWN_APP_TYPE = "unknown"
 
 const MONGO_DB_TYPE = "mongo"
 const POSTGRESQL_DB_TYPE = "postgresql"
+const REDIS_DB_TYPE = "redis"
+
+var dbImageMap = map[string]models.DockerImage{
+	// @TODO: SHAs, also decide most appropriate images to use
+	POSTGRESQL_DB_TYPE: models.DockerImage{
+		Image: "circleci/postgres:9.4-alpine-ram",
+	},
+	MONGO_DB_TYPE: models.DockerImage{
+		// @TODO: 3.4?
+		Image: "circleci/mongo:3.2.20-jessie-ram",
+	},
+	REDIS_DB_TYPE: models.DockerImage{
+		Image: "redis@sha256:858b1677143e9f8455821881115e276f6177221de1c663d0abef9b2fda02d065",
+	},
+}
 
 var (
 	makefile      = []byte{}
@@ -118,7 +134,7 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	v2.Jobs.Build.Docker = []models.DockerImage{
 		primaryImage,
 	}
-	// @TODO (INFRA-3159): Determine and add additional database image(s) needed
+	// Determine and add additional mongo/postgres image(s) needed
 	dbImages := getDatabaseImages(imageConstraints)
 	v2.Jobs.Build.Docker = append(v2.Jobs.Build.Docker, dbImages...)
 
@@ -145,6 +161,10 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	for _, item := range v1.Machine.Services {
 		if item == "docker" {
 			v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, "setup_remote_docker")
+		} else if item == "redis" {
+			v2.Jobs.Build.Docker = append(v2.Jobs.Build.Docker, models.DockerImage{
+				Image: "redis@sha256:858b1677143e9f8455821881115e276f6177221de1c663d0abef9b2fda02d065",
+			})
 		} else {
 			fmt.Printf("!WARNING: ingoring v1.Machine.Services item %s\n\n", item)
 		}
@@ -159,7 +179,17 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	}
 
 	if appType == NODE_APP_TYPE {
+		// run npm install for all node apps
 		addNPMInstallStep(&v2)
+		// @TODO: additional steps for old node versions
+		v, err := strconv.Atoi(imageConstraints.Version)
+		if err != nil {
+			fmt.Printf("invalid node version %s\n", imageConstraints.Version)
+		} else if v < 6 {
+			fmt.Printf("OH NO IT'S NODE %s\n", imageConstraints.Version)
+			log.Fatal(fmt.Sprintf("OH NO IT'S NODE %s\n", imageConstraints.Version))
+		}
+
 	}
 
 	_, usesPostgresql := imageConstraints.DatabaseTypes[POSTGRESQL_DB_TYPE]
@@ -167,6 +197,9 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 		addInstallPSQLStep(&v2)
 		addWaitForPostgresStep(&v2)
 	}
+	// translate DEPENDENCIES steps
+	// @TODO - currenlty can lead to redundancy
+	translateDependenciesSteps(&v1, &v2)
 
 	// translate COMPILE & TEST steps
 	translateCompileSteps(&v1, &v2)
@@ -183,6 +216,18 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	}
 
 	return v2, nil
+}
+
+func translateDependenciesSteps(v1 *models.CircleYamlV1, v2 *models.CircleYamlV2) {
+	for _, item := range v1.Dependencies.Pre {
+		v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, map[string]string{"run": item})
+	}
+	for _, item := range v1.Dependencies.Override {
+		v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, map[string]string{"run": item})
+	}
+	for _, item := range v1.Dependencies.Post {
+		v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, map[string]string{"run": item})
+	}
 }
 
 func translateCompileSteps(v1 *models.CircleYamlV1, v2 *models.CircleYamlV2) {
@@ -435,7 +480,6 @@ func determineDatabaseTypes() map[string]struct{} {
 // -- true if a file with `test` in the name contains the text `postgres`
 // -- false otherwise
 func needsPostgreSQL() bool {
-	// @TODO: could also check for pq in Gopkg.toml, for go repos -- but does this always mean it's used in tests?
 	postgresqlCheckRegexp := regexp.MustCompile(`psql`)
 	postgresqlCircleCheckRegexp := regexp.MustCompile(`postgres`)
 	if postgresqlCheckRegexp.Match(makefile) || postgresqlCircleCheckRegexp.Match(circleCI1File) {
@@ -456,12 +500,10 @@ func needsPostgreSQL() bool {
 
 // needsMongoDB returns true if tests rely on mongodb, based on these criteria:
 // -- true if Makefile contains the text `MONGO_TEST_DB`
-// -- true if a file with `test` in the name contains the text `Mongo` or `mongo`
+// -- true if a file with `test` in the name contains the text `Mongo` or `mongo` or `mgo`
 // -- false otherwise
 func needsMongoDB() bool {
-	// @TODO: could also check for mgo in Gopkg.toml, for go repos -- but does this always mean it's used in tests?
 	// check Makefile for MONGO_TEST_DB
-	// @TODO update comment; use "or" in regexp
 	mongoCheckRegexp := regexp.MustCompile(`MONGO_TEST_DB|mongodb://localhost|mongodb://127.0.0.1`)
 	if mongoCheckRegexp.Match(makefile) {
 		return true
@@ -479,10 +521,28 @@ func needsMongoDB() bool {
 	return len(string(output)) > 0
 }
 
+// needsRedis returns true if tests rely on redis, based on these criteria:
+// -- true if a file with `test` in the name contains the text `redis`
+// -- false otherwise
+// @TODO - currently unused, under the theory that any redis-required repo should have "redis" listed in services
+func needsRedis() bool {
+	// check test files for mention of redis
+	// grep --include=\*test* -rnw . -e "[a-z]*redis" --exclude-dir={vendor,gen-*}
+	cmd := exec.Command("/bin/sh", "-c", "grep --include=\\*test* -rnw . -e \"[a-z]*redis\" --exclude-dir={vendor,gen-*}")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if len(string(output)) > 0 {
+			fmt.Printf("\n\n!Warning: failed to check for redis. Error: %s\n\n", string(output))
+		}
+		return false
+	}
+	return len(string(output)) > 0
+}
+
 // determineGoVersion determines version of go in use for an app
 // this information is in makefile's golang-version-check, e.g.:
 // $(eval $(call golang-version-check,1.10))
-// @TODO: error if version not found instead of returning 1.10? or is 1.10 default alright?
+// uses 1.10 as default if version is not found in this way
 func determineGoVersion() string {
 	version := "1.10"
 	versionCheckRegexp := regexp.MustCompile(`golang-version-check,([0-1].[0-9]+)`)
@@ -494,7 +554,6 @@ func determineGoVersion() string {
 }
 
 // determineNodeVersion determines version of node for an app
-// @TODO (INFRA-3156): implement (determine correct node version for non-wag node apps)
 func determineNodeVersion() string {
 	defaultVersion := "8"
 	versionCheckRegexp := regexp.MustCompile(`NODE_VERSION := "v([0-9]+)"`)
@@ -536,18 +595,19 @@ func getImage(constraints models.ImageConstraints) models.DockerImage {
 		Image: "circleci/build-image:ubuntu-14.04-XXL-upstart-1189-5614f37",
 	}
 
-	// @TODO (INFRA-3149): node version for wag locked in at 8.11.3 by these images -- could be ok (?)
 	golangImageMap := map[string]models.DockerImage{
 		"1.10": models.DockerImage{Image: "circleci/golang:1.10.3-stretch"}, // "circleci/golang@sha256:4614481a383e55eef504f26f383db1329c285099fde0cfd342c49e5bb9b6c32a"
 		"1.9":  models.DockerImage{Image: "circleci/golang:1.9.7-stretch"},  // "circleci/golang@sha256:c46bee0b60747525d354f219083a46e06c68152f90f3bfb2812d1f232e6a5097"
 		"1.8":  models.DockerImage{Image: "circleci/golang:1.8.7-stretch"},
 	}
 
-	// @TODO (INFRA-3149): base image for node <6 that's not just the xxl default?
 	nodeImageMap := map[string]models.DockerImage{
 		"10": models.DockerImage{Image: "circleci/node:10.8.0-stretch"},
 		"8":  models.DockerImage{Image: "circleci/node:8.11.3-stretch"},
 		"6":  models.DockerImage{Image: "circleci/node:6.14.3-stretch"},
+		"5":  models.DockerImage{Image: "circleci/node:6.14.3-stretch"},
+		"4":  models.DockerImage{Image: "circleci/node:6.14.3-stretch"},
+		"0":  models.DockerImage{Image: "circleci/node:6.14.3-stretch"},
 	}
 
 	if appType == GOLANG_APP_TYPE {
@@ -565,6 +625,8 @@ func getImage(constraints models.ImageConstraints) models.DockerImage {
 		nodeBaseImage, ok := nodeImageMap[version]
 		if ok {
 			return nodeBaseImage
+		} else {
+			fmt.Printf("unrecognized node version !%s!\n", version)
 		}
 	}
 	fmt.Printf("No circleci image selected for app type %s, version %s -- using default\n", constraints.AppType, constraints.Version)
@@ -574,16 +636,7 @@ func getImage(constraints models.ImageConstraints) models.DockerImage {
 // getDatabaseImages returns a slice of database images that a repo needs to build
 // (over and above its primary, base image) based on database types it uses
 func getDatabaseImages(constraints models.ImageConstraints) []models.DockerImage {
-	dbImageMap := map[string]models.DockerImage{
-		// @TODO: SHAs, also decide most appropriate images to use
-		POSTGRESQL_DB_TYPE: models.DockerImage{
-			Image: "circleci/postgres:9.4-alpine-ram",
-		},
-		MONGO_DB_TYPE: models.DockerImage{
-			// @TODO: 3.4?
-			Image: "circleci/mongo:3.2.20-jessie-ram",
-		},
-	}
+
 	dbImages := []models.DockerImage{}
 	var dbImage models.DockerImage
 	var ok bool
