@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/Clever/circle-v2-migrate/models"
@@ -14,7 +15,7 @@ import (
 	"github.com/Clever/yaml"
 )
 
-const SCRIPT_VERSION = "0.11.0"
+const SCRIPT_VERSION = "0.12.0"
 
 const GOLANG_APP_TYPE = "go"
 const NODE_APP_TYPE = "node"
@@ -133,7 +134,7 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	v2.Jobs.Build.Docker = []models.DockerImage{
 		primaryImage,
 	}
-	// @TODO (INFRA-3159): Determine and add additional database image(s) needed
+	// Determine and add additional mongo/postgres image(s) needed
 	dbImages := getDatabaseImages(imageConstraints)
 	v2.Jobs.Build.Docker = append(v2.Jobs.Build.Docker, dbImages...)
 
@@ -178,7 +179,17 @@ func convertToV2(v1 models.CircleYamlV1) (models.CircleYamlV2, error) {
 	}
 
 	if appType == NODE_APP_TYPE {
+		// run npm install for all node apps
 		addNPMInstallStep(&v2)
+		// @TODO: additional steps for old node versions
+		v, err := strconv.Atoi(imageConstraints.Version)
+		if err != nil {
+			fmt.Printf("invalid node version %s\n", imageConstraints.Version)
+		} else if v < 6 {
+			fmt.Printf("OH NO IT'S NODE %s\n", imageConstraints.Version)
+			log.Fatal(fmt.Sprintf("OH NO IT'S NODE %s\n", imageConstraints.Version))
+		}
+
 	}
 
 	_, usesPostgresql := imageConstraints.DatabaseTypes[POSTGRESQL_DB_TYPE]
@@ -454,7 +465,6 @@ func determineDatabaseTypes() map[string]struct{} {
 // -- true if a file with `test` in the name contains the text `postgres`
 // -- false otherwise
 func needsPostgreSQL() bool {
-	// @TODO: could also check for pq in Gopkg.toml, for go repos -- but does this always mean it's used in tests?
 	postgresqlCheckRegexp := regexp.MustCompile(`psql`)
 	postgresqlCircleCheckRegexp := regexp.MustCompile(`postgres`)
 	if postgresqlCheckRegexp.Match(makefile) || postgresqlCircleCheckRegexp.Match(circleCI1File) {
@@ -499,7 +509,7 @@ func needsMongoDB() bool {
 // needsRedis returns true if tests rely on redis, based on these criteria:
 // -- true if a file with `test` in the name contains the text `redis`
 // -- false otherwise
-// @TODO - currently unused undre the theory that any redis-required repo should have "redis" listed in services
+// @TODO - currently unused, under the theory that any redis-required repo should have "redis" listed in services
 func needsRedis() bool {
 	// check test files for mention of redis
 	// grep --include=\*test* -rnw . -e "[a-z]*redis" --exclude-dir={vendor,gen-*}
@@ -517,7 +527,7 @@ func needsRedis() bool {
 // determineGoVersion determines version of go in use for an app
 // this information is in makefile's golang-version-check, e.g.:
 // $(eval $(call golang-version-check,1.10))
-// @TODO: error if version not found instead of returning 1.10? or is 1.10 default alright?
+// uses 1.10 as default if version is not found in this way
 func determineGoVersion() string {
 	version := "1.10"
 	versionCheckRegexp := regexp.MustCompile(`golang-version-check,([0-1].[0-9]+)`)
@@ -529,7 +539,6 @@ func determineGoVersion() string {
 }
 
 // determineNodeVersion determines version of node for an app
-// @TODO (INFRA-3156): implement (determine correct node version for non-wag node apps)
 func determineNodeVersion() string {
 	defaultVersion := "8"
 	versionCheckRegexp := regexp.MustCompile(`NODE_VERSION := "v([0-9]+)"`)
@@ -571,7 +580,6 @@ func getImage(constraints models.ImageConstraints) models.DockerImage {
 		Image: "circleci/build-image:ubuntu-14.04-XXL-upstart-1189-5614f37",
 	}
 
-	// @TODO (INFRA-3149): node version for wag locked in at 8.11.3 by these images -- could be ok (?)
 	golangImageMap := map[string]models.DockerImage{
 		"1.10": models.DockerImage{Image: "circleci/golang:1.10.3-stretch"}, // "circleci/golang@sha256:4614481a383e55eef504f26f383db1329c285099fde0cfd342c49e5bb9b6c32a"
 		"1.9":  models.DockerImage{Image: "circleci/golang:1.9.7-stretch"},  // "circleci/golang@sha256:c46bee0b60747525d354f219083a46e06c68152f90f3bfb2812d1f232e6a5097"
@@ -582,6 +590,8 @@ func getImage(constraints models.ImageConstraints) models.DockerImage {
 		"10": models.DockerImage{Image: "circleci/node:10.8.0-stretch"},
 		"8":  models.DockerImage{Image: "circleci/node:8.11.3-stretch"},
 		"6":  models.DockerImage{Image: "circleci/node:6.14.3-stretch"},
+		"5":  models.DockerImage{Image: "circleci/node:6.14.3-stretch"},
+		"4":  models.DockerImage{Image: "circleci/node:6.14.3-stretch"},
 		"0":  models.DockerImage{Image: "circleci/node:6.14.3-stretch"},
 	}
 
@@ -600,6 +610,8 @@ func getImage(constraints models.ImageConstraints) models.DockerImage {
 		nodeBaseImage, ok := nodeImageMap[version]
 		if ok {
 			return nodeBaseImage
+		} else {
+			fmt.Printf("unrecognized node version !%s!\n", version)
 		}
 	}
 	fmt.Printf("No circleci image selected for app type %s, version %s -- using default\n", constraints.AppType, constraints.Version)
