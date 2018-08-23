@@ -31,8 +31,9 @@ func main() {
 	// run circle-v2-migrate script against repo
 	runScriptCmd := exec.Command("./circle-v2-migrate")
 	scriptOutput, err := runScriptCmd.CombinedOutput()
+
 	if err != nil {
-		log.Fatalf("cannot run script, %s\n", err.Error())
+		log.Fatalf("%s -- cannot run script (%s): %s\n", repoName, err.Error(), string(scriptOutput))
 	}
 	log.Printf("circle-v2-migrate output: %s\n", string(scriptOutput))
 
