@@ -454,7 +454,7 @@ func determineImageConstraints() models.ImageConstraints {
 		AppType: "unknown",
 	}
 
-	pylintCheckRegexp := regexp.MustCompile(`pylint`)
+	pythonCheckRegexp := regexp.MustCompile(`pylint|python|pep8`)
 	if _, err := os.Stat("./package.json"); err == nil {
 		imageConstraints = models.ImageConstraints{
 			AppType: NODE_APP_TYPE,
@@ -475,7 +475,7 @@ func determineImageConstraints() models.ImageConstraints {
 			AppType: NODE_APP_TYPE,
 			Version: determineNodeVersion(),
 		}
-	} else if pylintCheckRegexp.Match(makefile) {
+	} else if pythonCheckRegexp.Match(makefile) {
 		imageConstraints = models.ImageConstraints{
 			AppType: PYTHON_APP_TYPE,
 			Version: "2.7",
