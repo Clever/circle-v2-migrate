@@ -15,11 +15,12 @@ import (
 	"github.com/Clever/yaml"
 )
 
-const SCRIPT_VERSION = "1.0.0"
+const SCRIPT_VERSION = "1.1.0"
 
 const GOLANG_APP_TYPE = "go"
 const NODE_APP_TYPE = "node"
 const WAG_APP_TYPE = "wag"
+const PYTHON_APP_TYPE = "python"
 const UNKNOWN_APP_TYPE = "unknown"
 
 const MONGO_DB_TYPE = "mongo"
@@ -348,11 +349,12 @@ func addInstallAWSCLIStep(v2 *models.CircleYamlV2) {
 	installAWSCLIStep := map[string]interface{}{
 		"run": map[string]string{
 			"name": "Install awscli for ECR publish",
-			"command": `cd /tmp/ && wget https://bootstrap.pypa.io/get-pip.py && sudo python get-pip.py
+			"command": `rm -rf ~/.local
+cd /tmp/ && wget https://bootstrap.pypa.io/get-pip.py && sudo python get-pip.py
 sudo apt-get update
 sudo apt-get install python-dev
-sudo pip install --upgrade awscli && aws --version
-pip install --upgrade --user awscli`,
+sudo pip install --upgrade awscli
+aws --version`,
 		},
 	}
 	v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, installAWSCLIStep)
@@ -436,6 +438,7 @@ func determineImageConstraints() models.ImageConstraints {
 		AppType: "unknown",
 	}
 
+	pylintCheckRegexp := regexp.MustCompile(`pylint`)
 	if _, err := os.Stat("./package.json"); err == nil {
 		imageConstraints = models.ImageConstraints{
 			AppType: NODE_APP_TYPE,
@@ -455,6 +458,11 @@ func determineImageConstraints() models.ImageConstraints {
 		imageConstraints = models.ImageConstraints{
 			AppType: NODE_APP_TYPE,
 			Version: determineNodeVersion(),
+		}
+	} else if pylintCheckRegexp.Match(makefile) {
+		imageConstraints = models.ImageConstraints{
+			AppType: PYTHON_APP_TYPE,
+			Version: "2.7",
 		}
 	}
 	imageConstraints.DatabaseTypes = determineDatabaseTypes()
@@ -607,6 +615,9 @@ func getImage(constraints models.ImageConstraints) models.DockerImage {
 		"4":  models.DockerImage{Image: "circleci/node:6.14.3-stretch"},
 		"0":  models.DockerImage{Image: "circleci/node:6.14.3-stretch"},
 	}
+	pythonImageMap := map[string]models.DockerImage{
+		"2.7": models.DockerImage{Image: "circleci/python:2.7.15"},
+	}
 
 	if appType == GOLANG_APP_TYPE {
 		golangBaseImage, ok := golangImageMap[version]
@@ -625,6 +636,11 @@ func getImage(constraints models.ImageConstraints) models.DockerImage {
 			return nodeBaseImage
 		} else {
 			fmt.Printf("unrecognized node version !%s!\n", version)
+		}
+	} else if appType == PYTHON_APP_TYPE {
+		pythonBaseImage, ok := pythonImageMap[version]
+		if ok {
+			return pythonBaseImage
 		}
 	}
 	fmt.Printf("No circleci image selected for app type %s, version %s -- using default\n", constraints.AppType, constraints.Version)
