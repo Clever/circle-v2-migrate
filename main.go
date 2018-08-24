@@ -304,9 +304,8 @@ func translateDeploySteps(v1 *models.CircleYamlV1, v2 *models.CircleYamlV2) erro
 
 	if allOk {
 		branch := all.Branch
-		fmt.Printf("!%s!\n", branch)
 		var command string
-		for _, item := range master.Commands {
+		for _, item := range all.Commands {
 			if branch != "" {
 				command = fmt.Sprintf(`if [ "${CIRCLE_BRANCH}" == "%s" ]; then `+item+`; fi;`, branch)
 			} else {
