@@ -15,7 +15,7 @@ import (
 	"github.com/Clever/yaml"
 )
 
-const SCRIPT_VERSION = "1.1.0"
+const SCRIPT_VERSION = "1.2.0"
 
 const GOLANG_APP_TYPE = "go"
 const NODE_APP_TYPE = "node"
@@ -262,6 +262,7 @@ func translateDeploySteps(v1 *models.CircleYamlV1, v2 *models.CircleYamlV2) erro
 
 	nonMaster, nonMasterOk := v1.Deployment["non-master"]
 	master, masterOk := v1.Deployment["master"]
+	all, allOk := v1.Deployment["all"]
 
 	overlap := map[string]interface{}{}
 	if masterOk && nonMasterOk {
@@ -297,6 +298,21 @@ func translateDeploySteps(v1 *models.CircleYamlV1, v2 *models.CircleYamlV2) erro
 			}
 
 			step := map[string]string{"run": `if [ "${CIRCLE_BRANCH}" == "master" ]; then ` + item + `; fi;`}
+			v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, step)
+		}
+	}
+
+	if allOk {
+		branch := all.Branch
+		fmt.Printf("!%s!\n", branch)
+		var command string
+		for _, item := range master.Commands {
+			if branch != "" {
+				command = fmt.Sprintf(`if [ "${CIRCLE_BRANCH}" == "%s" ]; then `+item+`; fi;`, branch)
+			} else {
+				command = item
+			}
+			step := map[string]string{"run": command}
 			v2.Jobs.Build.Steps = append(v2.Jobs.Build.Steps, step)
 		}
 	}
