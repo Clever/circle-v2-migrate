@@ -3,9 +3,9 @@ kind: Component
 metadata:
   name: circle-v2-migrate
   description: Migrates a repo from CircleCI v1 to v2
-  owner: unknown
+  owner: eng-infra
 spec:
   type: unknown
   lifecycle: production
-  owner: unknown
+  owner: eng-infra
   system: Clever
